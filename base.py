@@ -57,6 +57,7 @@ def render(
     import jinja2
 
     loader = jinja2.FileSystemLoader(paths)
+    env_kwargs = dict(lstrip_blocks=True, trim_blocks=True) | env_kwargs
     env = jinja2.Environment(loader=loader, **env_kwargs)
     env.filters.update(filters)
     env.globals.update(globals)
