@@ -3,6 +3,8 @@
 #let report(
   title,
   subtitle,
+  author: none,
+  email: none,
   toc: false,
   justify: true,
   lang: "es",
@@ -22,13 +24,23 @@
   )
   set par(justify: justify)
   set page(numbering: number, number-align: right, margin: margin)
+  show heading: set block(below: 0.8em)
+  show link: underline
   align(center, {
     text(title-size, weight: "bold", title)
     if (subtitle != none) {
       v(1em, weak: true)
-      smallcaps(text(calc.max(0.9 * size, 0.6 * title-size), subtitle))
+      smallcaps(text(calc.max(size, 0.6 * title-size), subtitle))
+    }
+    if (author != none) {
+      v(0.7em, weak: true)
+      let author-size = calc.max(size, 0.5 * title-size)
+      text(author-size, author)
+      if (email != none) {
+        " " +  underline(text(author-size, "(" + email + ")"))
+      }
     }
   })
-  if toc { outline() }
+  if int(toc) > 0 { outline(depth: int(toc)) }
   doc
 }
