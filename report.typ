@@ -11,7 +11,8 @@
   size: 11pt,
   title-size: 20pt,
   margin: 1.2in,
-  number: "1/1",
+  page-number: "1/1",
+  heading-number: "1.",
   doc
 ) = {
   assert(("es", "en").contains(lang))
@@ -23,7 +24,8 @@
     font: "Source Code Pro", weight: "medium", size: 0.9 * size
   )
   set par(justify: justify)
-  set page(numbering: number, number-align: right, margin: margin)
+  set page(numbering: page-number, number-align: right, margin: margin)
+  set heading(numbering: heading-number)
   show heading: set block(below: 0.8em)
   show link: underline
   align(center, {
