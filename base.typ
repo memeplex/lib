@@ -43,7 +43,7 @@
 #let sd = math.op("SD")
 #let bias = math.op("Bias")
 #let mse = math.op("MSE")
-#let med = math.op("med", limits: true)
+#let median = math.op("med", limits: true)
 #let mode = math.op("mode")
 #let argmin = math.op("arg min", limits: true)
 #let argmax = math.op("arg max", limits: true)
