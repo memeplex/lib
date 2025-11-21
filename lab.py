@@ -42,6 +42,15 @@ def display_all(value, max_rows=None, max_columns=None):
         display(value)
 
 
+def config_pandas(v3_compat=True):
+    if v3_compat:
+        # https://pandas.pydata.org/docs/user_guide/migration-3-strings.html
+        pd.options.future.infer_string = True
+        # https://pandas.pydata.org/docs/user_guide/copy_on_write.html
+        pd.options.mode.copy_on_write = True
+        pd.options.future.no_silent_downcasting = True
+
+
 def keep_quiet(*filters):
     for kwargs in [
         dict(message=r".*Consider using BigQuery DataFrames.*LargeResultsWarning"),
