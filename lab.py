@@ -70,8 +70,8 @@ def nice_style(md_width="80ch", figsize=(6, 4)):
     if in_vscode:
         css = """
         <style>
-          .dataframe th {font-family: "Consolas";}
-          .dataframe tr {font-family: "Consolas";}
+          .dataframe th {font-family: "Source Code Pro";}
+          .dataframe tr {font-family: "Source Code Pro";}
           .markup .preview {width: %s !important; }
         </style>
         """
