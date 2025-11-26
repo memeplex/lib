@@ -12,7 +12,7 @@
   title-size: 20pt,
   margin: 1.2in,
   page-number: "1/1",
-  heading-number: "1.",
+  heading-number: none,
   doc
 ) = {
   assert(("es", "en").contains(lang))
@@ -25,7 +25,9 @@
   )
   set par(justify: justify)
   set page(numbering: page-number, number-align: right, margin: margin)
-  set heading(numbering: heading-number)
+  set heading(
+    numbering: if (heading-number == true) {"1."} else {heading-number}
+  ) if (heading-number != none)
   show heading: set block(below: 0.8em)
   show link: underline
   align(center, {
