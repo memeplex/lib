@@ -2,7 +2,7 @@
 
 #let report(
   title,
-  subtitle,
+  subtitle: none,
   author: none,
   email: none,
   toc: false,
