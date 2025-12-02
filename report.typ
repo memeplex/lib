@@ -30,6 +30,7 @@
   ) if (heading-number != none)
   show heading: set block(below: 0.8em)
   show link: underline
+  set footnote.entry(gap: 0.8em)
   align(center, {
     text(title-size, weight: "bold", title)
     if (subtitle != none) {
