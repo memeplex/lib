@@ -3,17 +3,24 @@
 // https://forum.typst.app/t/4608
 #let config = state("slides.config")
 
-#let slides(body, lang: "es", accent: luma(245)) = {
+#let slides(
+  size: 10pt,
+  lang: "es",
+  accent: luma(245),
+  libertinus-math: true,
+  doc
+) = {
   // Beamer uses 128mm but with 4:3 and 1cm margin by default
   set page(width: 128mm, height: 128mm * 9 / 16, margin: (x: 0.8cm, y: 0.6cm))
   // Emojis are quite broken, use #base.icon for now.
   // https://github.com/typst/typst/issues/4755
   // https://github.com/Myriad-Dreamin/tinymist/issues/1821
-  set text(font: ("Libertinus Sans", "Noto Color Emoji"), size: 10pt)
+  set text(font: ("Libertinus Sans", "Noto Color Emoji"), size: size)
   set text(lang: "es", region: "AR") if lang == "es"
-  // https://github.com/typst/typst/issues/5535
-  show math.equation: set text(font: "Libertinus Math")
-  show raw: set text(font: "Source Code Pro", weight: "medium", size: 8pt)
+  show math.equation: set text(font: "Libertinus Math") if libertinus-math
+  show raw: set text(
+    font: "Source Code Pro", weight: "medium", size: 0.8 * size
+  )
   show raw.where(block: false): it => box(
     fill: accent, outset: (y: 2pt), inset: (x: 1pt), radius: 1pt, it
   )
@@ -21,7 +28,7 @@
     fill: accent, inset: (x: 10pt, y: 7pt), radius: 2pt, it
   ))
   config.update((accent: accent))
-  body
+  doc
 }
 
 #let title(title, author: none, email: none, place: none, size: 18pt) = {
