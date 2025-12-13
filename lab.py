@@ -42,6 +42,15 @@ def display_all(value, max_rows=None, max_columns=None):
         display(value)
 
 
+def config_pandas(v3_compat=True):
+    if v3_compat:
+        # https://pandas.pydata.org/docs/user_guide/migration-3-strings.html
+        pd.options.future.infer_string = True
+        # https://pandas.pydata.org/docs/user_guide/copy_on_write.html
+        pd.options.mode.copy_on_write = True
+        pd.options.future.no_silent_downcasting = True
+
+
 def keep_quiet(*filters):
     for kwargs in [
         dict(message=r".*Consider using BigQuery DataFrames.*LargeResultsWarning"),
@@ -61,8 +70,8 @@ def nice_style(md_width="80ch", figsize=(6, 4)):
     if in_vscode:
         css = """
         <style>
-          .dataframe th {font-family: "Consolas";}
-          .dataframe tr {font-family: "Consolas";}
+          .dataframe th {font-family: "Source Code Pro";}
+          .dataframe tr {font-family: "Source Code Pro";}
           .markup .preview {width: %s !important; }
         </style>
         """
