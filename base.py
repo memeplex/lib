@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import json
 import os
 import subprocess
@@ -27,9 +28,8 @@ class Bundle(dict):
 
 class Config(Bundle):
     def uid(self):
-        import xxhash
-
-        return xxhash.xxh64(json.dumps(self, sort_keys=True)).hexdigest()
+        text = json.dumps(self, sort_keys=True)
+        return hashlib.blake2b(text, digest_size=16).hexdigest()
 
 
 def sh(cmd, input=None, capture=True, text=True, check=True):
