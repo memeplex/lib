@@ -1,5 +1,4 @@
 import numpy as np
-import optuna
 from sklearn import set_config
 from sklearn.metrics import get_scorer
 from sklearn.model_selection import KFold
@@ -22,12 +21,14 @@ def search(
     scoring="r2",
     n_trials=20,
     n_jobs=-1,
-    verbosity=optuna.logging.WARNING,
+    verbosity="WARNING",
     sampler_kwargs={},
     pruner_kwargs={},
     seed=0,
     storage=None,
 ):
+    import optuna
+
     def suggest(trial):
         params = {}
         for name, args in space.items():
@@ -58,7 +59,7 @@ def search(
 
     cv = KFold(cv) if type(cv) is int else cv
     scorer = get_scorer(scoring)
-    optuna.logging.set_verbosity(verbosity)
+    optuna.logging.set_verbosity(optuna.logging.getattr(verbosity))
     # https://optuna.readthedocs.io/en/stable/reference/samplers/index.html
     # https://towardsdatascience.com/building-a-tree-structured-parzen-estimator-from-scratch-kind-of-20ed31770478/
     sampler = optuna.samplers.TPESampler(seed=seed, **sampler_kwargs)
