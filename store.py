@@ -134,6 +134,8 @@ class Storage:
             load, dump, mode = pickle.load, pickle.dump, "b"
         elif ext == ".json":
             load, dump, mode = partial(json.load, object_hook=Bundle), json.dump, "t"
+        elif ext == ".parquet":
+            load, dump, mode = pd.read_parquet, pd.DataFrame.to_parquet, "b"
         return Bundle(load=load, dump=dump, mode=mode)
 
 
