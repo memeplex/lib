@@ -19,15 +19,15 @@ class Database:
         self.sql_path = sql_path
         self.render_kwargs = kwargs
 
-    def query(self, sql=None, macro=None, *, debug=False, progress=False, **kwargs):
+    def query(self, sql=None, macro=None, *, flags="", **kwargs):
         sql = base.render(sql or self.sql_path, macro, **(self.render_kwargs | kwargs))
         sql = textwrap.dedent(sql)
-        if debug and debug != "n":
-            self._debug(sql, debug)
-            if "a" in debug:
+        if "d" in flags or "q" in flags:
+            self._debug(sql, flags)
+            if "q" in flags:
                 raise Exception("Aborted after rendering")
         try:
-            return self._query(sql, progress)
+            return self._query(sql, flags)
         except Exception as exc:
             error = self._error(exc)
             if not error:
@@ -39,10 +39,10 @@ class Database:
                 if abs(diff) <= 3:
                     print(f"{num:3d}{':' if diff else '>'} {line}")
 
-    def _debug(self, sql, mode):
+    def _debug(self, sql, flags):
         print(sql)
 
-    def _query(self, sql, progress):
+    def _query(self, sql, flags):
         if self.use_cx:
             import connectorx
 
@@ -55,18 +55,20 @@ class Database:
 
 
 class BigQueryDatabase(Database):
-    def _query(self, sql, progress):
+    def __init__(self, *args, bqstorage=True, **kwargs):
+        self.bqstorage = bqstorage
+        super().__init__(*args, **kwargs)
+
+    def _query(self, sql, flags):
         if self.use_cx:
             # Has issues reading array columns
             # https://github.com/sfu-db/connector-x/issues/818
-            return super()._query(sql, progress)
+            return super()._query(sql, flags)
         else:
-            import pandas_gbq
-
-            return pandas_gbq.read_gbq(
-                sql,
-                bigquery_client=self.conn,
-                progress_bar_type="tqdm" if progress else None,
+            job = self.conn.query(sql)
+            return (job.to_arrow if "a" in flags else job.to_dataframe)(
+                create_bqstorage_client=self.bqstorage,
+                progress_bar_type="tqdm" if "b" in flags else None,
             )
 
     def _error(self, exc):
@@ -129,13 +131,20 @@ class Storage:
         return open(f"{self.path}/{name}", mode)
 
     def _serializer(self, name):
-        ext = os.path.splitext(name)[1]
+        root, ext = os.path.splitext(name)
         if ext in [".pickle", ".pkl", ""]:
             load, dump, mode = pickle.load, pickle.dump, "b"
         elif ext == ".json":
             load, dump, mode = partial(json.load, object_hook=Bundle), json.dump, "t"
         elif ext == ".parquet":
-            load, dump, mode = pd.read_parquet, pd.DataFrame.to_parquet, "b"
+            import pyarrow.parquet as pq
+
+            if root.endswith(".arrow"):
+                load, dump, mode = pq.read_table, pq.write_table, "b"
+            else:
+                load, dump, mode = pd.read_parquet, pd.DataFrame.to_parquet, "b"
+            dump = partial(dump, compression="snappy")
+
         return Bundle(load=load, dump=dump, mode=mode)
 
 
