@@ -60,6 +60,8 @@ def keep_quiet(*filters):
 
     # https://stackoverflow.com/a/78793583
     np.set_printoptions(legacy="1.25")
+    # https://share.google/aimode/EhpP13AsS1FJKPSD0
+    os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
 
 
 def nice_style(md_width="80ch", figsize=(6, 4)):
