@@ -72,9 +72,8 @@ class BigQueryDatabase(Database):
             )
 
     def _error(self, exc):
-        pre = r'message: "' if self.use_cx else r"https:[^ ]+"
         post = r'", status:' if self.use_cx else r"$"
-        pattern = rf"{pre}(.*?(?: at \[(\d+):\d+\])?){post}"
+        pattern = rf"message: (.*?(?: at \[(\d+):\d+\])?){post}"
         match = re.search(pattern, exc.args[0])
         if match:
             message = match[1].replace(r"\"", '"')
