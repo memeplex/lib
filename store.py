@@ -19,15 +19,15 @@ class Database:
         self.sql_path = sql_path
         self.render_kwargs = kwargs
 
-    def query(self, sql=None, macro=None, *, flags="", **kwargs):
+    def query(self, sql=None, macro=None, *, debug=None, as_type=None, **kwargs):
         sql = base.render(sql or self.sql_path, macro, **(self.render_kwargs | kwargs))
         sql = textwrap.dedent(sql)
-        if "d" in flags or "q" in flags:
-            self._debug(sql, flags)
-            if "q" in flags:
+        if debug:
+            self._debug(sql, debug)
+            if "a" in debug:
                 raise Exception("Aborted after rendering")
         try:
-            return self._query(sql, flags)
+            return self._query(sql, as_type)
         except Exception as exc:
             error = self._error(exc)
             if not error:
@@ -42,11 +42,11 @@ class Database:
     def _debug(self, sql, flags):
         print(sql)
 
-    def _query(self, sql, flags):
+    def _query(self, sql, as_type):
         if self.use_cx:
             import connectorx
 
-            return connectorx.read_sql(self.conn, sql)
+            return connectorx.read_sql(self.conn, sql, return_type=as_type)
         else:
             return pd.read_sql(sql, self.conn)
 
@@ -59,17 +59,15 @@ class BigQueryDatabase(Database):
         self.bqstorage = bqstorage
         super().__init__(*args, **kwargs)
 
-    def _query(self, sql, flags):
+    def _query(self, sql, as_type):
         if self.use_cx:
             # Has issues reading array columns
             # https://github.com/sfu-db/connector-x/issues/818
-            return super()._query(sql, flags)
+            return super()._query(sql, as_type)
         else:
             job = self.conn.query(sql)
-            return (job.to_arrow if "a" in flags else job.to_dataframe)(
-                create_bqstorage_client=self.bqstorage,
-                progress_bar_type="tqdm" if "b" in flags else None,
-            )
+            fetch = job.to_arrow if as_type == "arrow" else job.to_dataframe
+            return fetch(create_bqstorage_client=self.bqstorage)
 
     def _error(self, exc):
         post = r'", status:' if self.use_cx else r"$"
@@ -102,21 +100,22 @@ class Storage:
         self.path = path
 
     def put(self, name, value):
-        serializer = self._serializer(name)
-        with self._open(name, "w" + serializer.mode) as f:
-            serializer.dump(value, f)
+        dump, mode = self._serializer(name, value, None)
+        with self._open(name, "w" + mode) as f:
+            dump(value, f)
 
-    def get(self, name):
-        serializer = self._serializer(name)
-        with self._open(name, "r" + serializer.mode) as f:
-            return serializer.load(f)
+    def get(self, name, as_type=None):
+        assert as_type in ("arrow", "pandas", "path", None)
+        load, mode = self._serializer(name, None, as_type)
+        with self._open(name, "r" + mode) as f:
+            return load(f)
 
-    def get_or_create(self, name, factory, *, cache="use"):
+    def get_or_create(self, name, factory, *, cache="use", as_type=None):
         assert cache in ("use", "set", "skip")
         value = None
         if cache == "use":
             try:
-                value = self.get(name)
+                value = self.get(name, as_type)
                 print("Loaded from storage")
             except Exception:
                 pass
@@ -124,27 +123,34 @@ class Storage:
             value = factory()
             if cache != "skip":
                 self.put(name, value)
+                if as_type and self._type(value) != as_type:
+                    value = self.get(name, type)
         return value
 
     def _open(self, name, mode):
         return open(f"{self.path}/{name}", mode)
 
-    def _serializer(self, name):
-        root, ext = os.path.splitext(name)
-        if ext in [".pickle", ".pkl", ""]:
+    def _serializer(self, name, value, as_type):
+        ext = os.path.splitext(name)[1]
+        if as_type == "path":
+            load, dump, mode = lambda f: f.name, None, ""
+        elif ext in [".pickle", ".pkl", ""]:
             load, dump, mode = pickle.load, pickle.dump, "b"
         elif ext == ".json":
             load, dump, mode = partial(json.load, object_hook=Bundle), json.dump, "t"
         elif ext == ".parquet":
-            import pyarrow.parquet as pq
+            if "arrow" in (self._type(value), as_type):
+                import pyarrow.parquet as pq
 
-            if root.endswith(".arrow"):
-                load, dump, mode = pq.read_table, pq.write_table, "b"
+                load, dump = pq.read_table, pq.write_table
             else:
-                load, dump, mode = pd.read_parquet, pd.DataFrame.to_parquet, "b"
-            dump = partial(dump, compression="snappy")
+                load, dump = pd.read_parquet, pd.DataFrame.to_parquet
+            dump, mode = partial(dump, compression="snappy"), "b"
 
-        return Bundle(load=load, dump=dump, mode=mode)
+        return load if value is None else dump, mode
+
+    def _type(self, value):
+        return {"DataFrame": "pandas", "Table": "arrow"}[value.__class__.__name__]
 
 
 class GoogleStorage(Storage):
