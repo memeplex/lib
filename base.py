@@ -29,7 +29,7 @@ class Bundle(dict):
 class Config(Bundle):
     def uid(self):
         text = json.dumps(self, sort_keys=True)
-        return hashlib.blake2b(text.encode('utf-8'), digest_size=16).hexdigest()
+        return hashlib.blake2b(text.encode("utf-8"), digest_size=16).hexdigest()
 
 
 def sh(cmd, input=None, capture=True, text=True, check=True):
@@ -58,7 +58,9 @@ def render(
 
     loader = jinja2.FileSystemLoader(paths)
     env_kwargs = dict(lstrip_blocks=True, trim_blocks=True) | env_kwargs
-    env = jinja2.Environment(loader=loader, **env_kwargs)
+    env = jinja2.Environment(
+        loader=loader, undefined=jinja2.StrictUndefined, **env_kwargs
+    )
     env.filters.update(filters)
     env.globals.update(globals)
     if text[0] in [".", "/"]:
