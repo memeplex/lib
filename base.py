@@ -1,5 +1,6 @@
 import datetime
 import hashlib
+import importlib
 import json
 import os
 import subprocess
@@ -104,3 +105,10 @@ def span(**kwargs):
 def set_tz(tz):
     os.environ["TZ"] = tz
     time.tzset()
+
+
+def try_import(name):
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        return None
