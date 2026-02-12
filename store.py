@@ -8,7 +8,11 @@ from functools import partial
 import pandas as pd
 
 from . import base
-from .base import Bundle
+from .base import Bundle, try_import
+
+cx = try_import("connectorx")
+pa, pq = try_import("pyarrow"), try_import("pyarrow.parquet")
+duckdb = try_import("duckdb")
 
 
 class Database:
@@ -44,9 +48,7 @@ class Database:
 
     def _query(self, sql, as_type):
         if self.use_cx:
-            import connectorx
-
-            return connectorx.read_sql(self.conn, sql, return_type=as_type)
+            return cx.read_sql(self.conn, sql, return_type=as_type or "pandas")
         else:
             return pd.read_sql(sql, self.conn)
 
@@ -104,8 +106,8 @@ class Storage:
         with self._open(name, "w" + mode) as f:
             dump(value, f)
 
-    def get(self, name, as_type=None):
-        assert as_type in ("arrow", "pandas", "path", None)
+    def get(self, name, as_type="pandas"):
+        assert as_type in ("pandas", "duckdb", "arrow", "path", None)
         load, mode = self._serializer(name, None, as_type)
         with self._open(name, "r" + mode) as f:
             return load(f)
@@ -123,8 +125,8 @@ class Storage:
             value = factory()
             if cache != "skip":
                 self.put(name, value)
-                if as_type and self._type(value) != as_type:
-                    value = self.get(name, type)
+                if self._type(value) != as_type:
+                    value = self.get(name, as_type)
         return value
 
     def _open(self, name, mode):
@@ -133,24 +135,33 @@ class Storage:
     def _serializer(self, name, value, as_type):
         ext = os.path.splitext(name)[1]
         if as_type == "path":
-            load, dump, mode = lambda f: f.name, None, ""
+            load, mode = lambda f: f.name, ""
         elif ext in [".pickle", ".pkl", ""]:
             load, dump, mode = pickle.load, pickle.dump, "b"
         elif ext == ".json":
             load, dump, mode = partial(json.load, object_hook=Bundle), json.dump, "t"
         elif ext == ".parquet":
-            if "arrow" in (self._type(value), as_type):
-                import pyarrow.parquet as pq
-
-                load, dump = pq.read_table, pq.write_table
-            else:
-                load, dump = pd.read_parquet, pd.DataFrame.to_parquet
-            dump, mode = partial(dump, compression="snappy"), "b"
+            load = {
+                "pandas": pd.read_parquet,
+                "arrow": pa.parquet.read_table,
+                "duckdb": lambda f: duckdb.read_parquet(f.name),
+            }.get(as_type)
+            dump = {
+                "pandas": pd.DataFrame.to_parquet,
+                "arrow": pa.parquet.write_table,
+                "duckdb": lambda v, f, **kwargs: v.write_parquet(f.name, **kwargs),
+            }.get(self._type(value))
+            dump = dump and partial(dump, compression="snappy")
+            mode = "b"
 
         return load if value is None else dump, mode
 
     def _type(self, value):
-        return {"DataFrame": "pandas", "Table": "arrow"}[value.__class__.__name__]
+        return {
+            "DataFrame": "pandas",
+            "Table": "arrow",
+            "DuckDBPyRelation": "duckdb",
+        }.get(value.__class__.__name__)
 
 
 class GoogleStorage(Storage):
