@@ -72,9 +72,8 @@ class BigQueryDatabase(Database):
             return fetch(create_bqstorage_client=self.bqstorage)
 
     def _error(self, exc):
-        post = r'", status:' if self.use_cx else r"$"
-        pattern = rf"message: (.*?(?: at \[(\d+):\d+\])?){post}"
-        match = re.search(pattern, exc.args[0])
+        pattern = r"message: (.*?(?: at \[(\d+):\d+\]))"
+        match = re.search(pattern, exc.args[0], re.DOTALL)
         if match:
             message = match[1].replace(r"\"", '"')
             line_num = match[2] and int(match[2])
