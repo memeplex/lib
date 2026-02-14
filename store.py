@@ -124,7 +124,7 @@ class Storage:
             value = factory()
             if cache != "skip":
                 self.put(name, value)
-                if self._type(value) != as_type:
+                if as_type and self._type(value) != as_type:
                     value = self.get(name, as_type)
         return value
 
@@ -149,7 +149,7 @@ class Storage:
                 "pandas": pd.DataFrame.to_parquet,
                 "arrow": pa.parquet.write_table,
                 "duckdb": lambda v, f, **kwargs: v.write_parquet(f.name, **kwargs),
-            }.get(self._type(value))
+            }.get(value is not None and self._type(value))
             dump = dump and partial(dump, compression="snappy")
             mode = "b"
 
@@ -160,7 +160,7 @@ class Storage:
             "DataFrame": "pandas",
             "Table": "arrow",
             "DuckDBPyRelation": "duckdb",
-        }.get(value.__class__.__name__)
+        }[value.__class__.__name__]
 
 
 class GoogleStorage(Storage):
