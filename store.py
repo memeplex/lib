@@ -26,7 +26,7 @@ class Database:
     def query(self, sql=None, macro=None, *, debug=None, as_type=None, **kwargs):
         sql = base.render(sql or self.sql_path, macro, **(self.render_kwargs | kwargs))
         sql = textwrap.dedent(sql)
-        if debug:
+        if debug and debug != "n":
             self._debug(sql, debug)
             if "a" in debug:
                 raise Exception("Aborted after rendering")
