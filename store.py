@@ -17,7 +17,7 @@ duckdb = try_import("duckdb")
 
 class Database:
     def __init__(self, conn, *, sql_path=None, **kwargs):
-        assert sql_path is None or sql_path[0] in [".", "/"]
+        assert type(sql_path) is not str or sql_path[0] in [".", "/"]
         self.conn = conn
         self.use_cx = type(conn) is str
         self.sql_path = sql_path
