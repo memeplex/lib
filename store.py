@@ -48,7 +48,9 @@ class Database:
 
     def _query(self, sql, as_type):
         if self.use_cx:
-            return cx.read_sql(self.conn, sql, return_type=as_type or "pandas")
+            return_type = {None: "pandas", "duckdb": "arrow"}.get(as_type, as_type)
+            value = cx.read_sql(self.conn, sql, return_type=return_type)
+            return duckdb.from_arrow(value) if as_type == "duckdb" else value
         else:
             return pd.read_sql(sql, self.conn)
 
@@ -67,9 +69,11 @@ class BigQueryDatabase(Database):
             # https://github.com/sfu-db/connector-x/issues/818
             return super()._query(sql, as_type)
         else:
+            assert as_type in (None, "pandas", "arrow", "duckdb")
             job = self.conn.query(sql)
-            fetch = job.to_arrow if as_type == "arrow" else job.to_dataframe
-            return fetch(create_bqstorage_client=self.bqstorage)
+            fetch = job.to_arrow if as_type in ("arrow", "duckdb") else job.to_dataframe
+            value = fetch(create_bqstorage_client=self.bqstorage)
+            return duckdb.from_arrow(value) if as_type == "duckdb" else value
 
     def _error(self, exc):
         pattern = r"message: (.*?(?: at \[(\d+):\d+\]))"
@@ -100,16 +104,11 @@ class Storage:
     def __init__(self, path):
         self.path = path
 
-    def put(self, name, value):
-        dump, mode = self._serializer(name, value, None)
-        with self._open(name, "w" + mode) as f:
-            dump(value, f)
+    def put(self, name, value, **kwargs):
+        self._io(name, value, None, kwargs)
 
-    def get(self, name, as_type="pandas"):
-        assert as_type in ("pandas", "duckdb", "arrow", "path", None)
-        load, mode = self._serializer(name, None, as_type)
-        with self._open(name, "r" + mode) as f:
-            return load(f)
+    def get(self, name, as_type=None, **kwargs):
+        return self._io(name, None, as_type, kwargs)
 
     def get_or_create(self, name, factory, *, cache="use", as_type=None):
         assert cache in ("use", "set", "skip")
@@ -131,29 +130,28 @@ class Storage:
     def _open(self, name, mode):
         return open(f"{self.path}/{name}", mode)
 
-    def _serializer(self, name, value, as_type):
+    def _io(self, name, value, as_type, kwargs):
         ext = os.path.splitext(name)[1]
-        if as_type == "path":
-            load, mode = lambda f: f.name, ""
-        elif ext in [".pickle", ".pkl", ""]:
-            load, dump, mode = pickle.load, pickle.dump, "b"
+        get = value is None
+        if ext in [".pickle", ".pkl", ""]:
+            fun = pickle.load if get else pickle.dump
         elif ext == ".json":
-            load, dump, mode = partial(json.load, object_hook=Bundle), json.dump, "t"
+            fun = partial(json.load, object_hook=Bundle) if get else json.dump
         elif ext == ".parquet":
-            load = {
-                "pandas": pd.read_parquet,
-                "arrow": pa.parquet.read_table,
-                "duckdb": lambda f: duckdb.read_parquet(f.name),
-            }.get(as_type)
-            dump = {
-                "pandas": pd.DataFrame.to_parquet,
-                "arrow": pa.parquet.write_table,
-                "duckdb": lambda v, f, **kwargs: v.write_parquet(f.name, **kwargs),
-            }.get(value is not None and self._type(value))
-            dump = dump and partial(dump, compression="snappy")
-            mode = "b"
+            type = (as_type or "pandas") if get else self._type(value)
+            assert type in ("pandas", "arrow", "duckdb")
+            kwargs = ({} if get else {"compression": "snappy"}) | kwargs
+            if type == "pandas":
+                fun = pd.read_parquet if get else value.to_parquet
+            elif type == "arrow":
+                fun = pa.parquet.read_table if get else pa.parquet.write_table
+            elif type == "duckdb":
+                fun = duckdb.read_parquet if get else value.write_parquet
+                return fun(f"{self._duckdb_protocol}{self.path}/{name}", **kwargs)
 
-        return load if value is None else dump, mode
+        mode = ("r" if get else "w") + ("t" if ext == ".json" else "b")
+        with self._open(name, mode) as f:
+            return fun(f, **kwargs)
 
     def _type(self, value):
         return {
@@ -161,6 +159,8 @@ class Storage:
             "Table": "arrow",
             "DuckDBPyRelation": "duckdb",
         }[value.__class__.__name__]
+
+    _duckdb_protocol = ""
 
 
 class GoogleStorage(Storage):
@@ -194,3 +194,5 @@ class GoogleStorage(Storage):
 
     def _blob(self, name):
         return self.bucket.blob(f"{self.path}/{name}")
+
+    _duckdb_protocol = "gs://"
