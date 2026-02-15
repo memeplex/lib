@@ -132,24 +132,25 @@ class Storage:
         ext = os.path.splitext(name)[1]
         get = value is None
         if ext in [".pickle", ".pkl", ""]:
-            fun = pickle.load if get else pickle.dump
+            load, dump = pickle.load, pickle.dump
         elif ext == ".json":
-            fun = partial(json.load, object_hook=Bundle) if get else json.dump
+            load, dump = partial(json.load, object_hook=Bundle), json.dump
         elif ext == ".parquet":
             type = (as_type or "pandas") if get else self._type(value)
             assert type in ("pandas", "arrow", "duckdb")
             kwargs = ({} if get else {"compression": "snappy"}) | kwargs
             if type == "pandas":
-                fun = pd.read_parquet if get else value.to_parquet
+                load, dump = pd.read_parquet, pd.DataFrame.to_parquet
             elif type == "arrow":
-                fun = pa.parquet.read_table if get else pa.parquet.write_table
+                load, dump = pa.parquet.read_table, pa.parquet.write_table
             elif type == "duckdb":
                 fun = duckdb.read_parquet if get else value.write_parquet
                 return fun(f"{self.path}/{name}", **kwargs)
 
         mode = ("r" if get else "w") + ("t" if ext == ".json" else "b")
-        with self._open(name, mode) as f:
-            return fun(f, **kwargs)
+        fun = load if get else partial(dump, value)
+        with self._open(name, mode) as file:
+            return fun(file, **kwargs)
 
     def _type(self, value):
         return {
