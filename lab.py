@@ -26,7 +26,7 @@ except NameError:
     pass
 
 
-def new_df(index=None, **kwargs):
+def df(index=None, **kwargs):
     return pd.DataFrame(kwargs, index)
 
 
