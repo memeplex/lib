@@ -6,6 +6,8 @@ import os
 import subprocess
 import time
 
+minute, hour, day, week = 60, 3600, 24 * 3600, 7 * 24 * 3600
+
 
 class Bundle(dict):
     __slots__ = ()
