@@ -11,7 +11,7 @@ from . import base
 from .base import Bundle, try_import
 
 cx = try_import("connectorx")
-pa, pq = try_import("pyarrow"), try_import("pyarrow.parquet")
+pq = try_import("pyarrow.parquet")
 duckdb = try_import("duckdb")
 
 
@@ -142,7 +142,7 @@ class Storage:
             if type == "pandas":
                 load, dump = pd.read_parquet, pd.DataFrame.to_parquet
             elif type == "arrow":
-                load, dump = pa.parquet.read_table, pa.parquet.write_table
+                load, dump = pq.read_table, pq.write_table
             elif type == "duckdb":
                 fun = duckdb.read_parquet if get else value.write_parquet
                 return fun(f"{self.path}/{name}", **kwargs)
