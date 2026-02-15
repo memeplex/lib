@@ -33,18 +33,15 @@ class Database:
         try:
             return self._query(sql, as_type)
         except Exception as exc:
-            error = self._error(exc)
-            if not error:
+            message, line_num = self._error(exc)
+            if not message:
                 raise
-        print("Error: " + error.message)
-        if error.line_num:
+        print("Error: " + message)
+        if line_num:
             for num, line in enumerate(sql.split("\n"), 1):
-                diff = error.line_num - num
+                diff = line_num - num
                 if abs(diff) <= 3:
                     print(f"{num:3d}{':' if diff else '>'} {line}")
-
-    def _debug(self, sql, flags):
-        print(sql)
 
     def _query(self, sql, as_type):
         if self.use_cx:
@@ -55,7 +52,10 @@ class Database:
             return pd.read_sql(sql, self.conn)
 
     def _error(self, exc):
-        return None
+        return None, None
+
+    def _debug(self, sql, flags):
+        print(sql)
 
 
 class BigQueryDatabase(Database):
@@ -68,20 +68,17 @@ class BigQueryDatabase(Database):
             # Has issues reading array columns
             # https://github.com/sfu-db/connector-x/issues/818
             return super()._query(sql, as_type)
-        else:
-            assert as_type in (None, "pandas", "arrow", "duckdb")
-            job = self.conn.query(sql)
-            fetch = job.to_arrow if as_type in ("arrow", "duckdb") else job.to_dataframe
-            value = fetch(create_bqstorage_client=self.bqstorage)
-            return duckdb.from_arrow(value) if as_type == "duckdb" else value
+
+        assert as_type in (None, "pandas", "arrow", "duckdb")
+        job = self.conn.query(sql)
+        fetch = job.to_dataframe if as_type in (None, "pandas") else job.to_arrow
+        value = fetch(create_bqstorage_client=self.bqstorage)
+        return duckdb.from_arrow(value) if as_type == "duckdb" else value
 
     def _error(self, exc):
         pattern = r"message: (.*?(?: at \[(\d+):\d+\]))"
         match = re.search(pattern, exc.args[0], re.DOTALL)
-        if match:
-            message = match[1].replace(r"\"", '"')
-            line_num = match[2] and int(match[2])
-            return Bundle(message=message, line_num=line_num)
+        return match and (match[1].replace(r"\"", '"'),  match[2] and int(match[2]))
 
     def metadata(
         self,
@@ -123,7 +120,8 @@ class Storage:
             value = factory()
             if cache != "skip":
                 self.put(name, value)
-                if as_type and self._type(value) != as_type:
+                # For duckdb always return parquet-based (not arrow-based) rels
+                if as_type == "duckdb" or (as_type and self._type(value) != as_type):
                     value = self.get(name, as_type)
         return value
 
@@ -147,7 +145,7 @@ class Storage:
                 fun = pa.parquet.read_table if get else pa.parquet.write_table
             elif type == "duckdb":
                 fun = duckdb.read_parquet if get else value.write_parquet
-                return fun(f"{self._duckdb_protocol}{self.path}/{name}", **kwargs)
+                return fun(f"{self.path}/{name}", **kwargs)
 
         mode = ("r" if get else "w") + ("t" if ext == ".json" else "b")
         with self._open(name, mode) as f:
@@ -160,8 +158,6 @@ class Storage:
             "DuckDBPyRelation": "duckdb",
         }[value.__class__.__name__]
 
-    _duckdb_protocol = ""
-
 
 class GoogleStorage(Storage):
     def __init__(self, client, path, *, local_path=None):
@@ -169,6 +165,10 @@ class GoogleStorage(Storage):
         bucket, self.path = path.rstrip("/").split("/", 1)
         self.bucket = self.client.bucket(bucket)
         self.local_cache = Storage(local_path) if local_path else None
+
+    def get(self, name, as_type=None, **kwargs):
+        value = super().get(name, "arrow" if as_type == "duckdb" else as_type, **kwargs)
+        return duckdb.from_arrow(value) if as_type == "duckdb" else value
 
     def get_or_create(self, name, factory, *, cache="use"):
         fun = partial(super().get_or_create, name, factory, cache=cache)
@@ -194,5 +194,3 @@ class GoogleStorage(Storage):
 
     def _blob(self, name):
         return self.bucket.blob(f"{self.path}/{name}")
-
-    _duckdb_protocol = "gs://"
