@@ -24,6 +24,7 @@ def search(
     *,
     cv=5,
     scoring="r2",
+    score_penalty=0,
     n_trials=20,
     early_stopping=False,
     train_scoring=False,
@@ -62,13 +63,14 @@ def search(
             trial.report(np.mean(scores), step)
             if trial.should_prune():
                 raise optuna.TrialPruned()
+        trial.set_user_attr("score", np.mean(scores))
         trial.set_user_attr("std_score", np.std(scores))
         if train_scoring:
             trial.set_user_attr("train_score", np.mean(train_scores))
             trial.set_user_attr("train_std_score", np.std(train_scores))
         if early_stopping:
             trial.set_user_attr("stopped_at", stopped_at)
-        return np.mean(scores)
+        return np.mean(scores) - score_penalty * np.std(scores)
 
     cv = KFold(cv) if type(cv) is int else cv
     scorer = get_scorer(scoring)
