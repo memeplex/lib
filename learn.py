@@ -20,6 +20,8 @@ def search(
     cv=5,
     scoring="r2",
     n_trials=20,
+    early=False,
+    train_score=False,
     n_jobs=-1,
     verbosity="WARNING",
     sampler_kwargs={},
@@ -42,24 +44,28 @@ def search(
         return params
 
     def objective(trial):
-        scores = []
+        scores, train_scores = [], []
         est = new_est(**suggest(trial))
-        for step, (train, test) in enumerate(cv.split(X)):
-            est.fit(X.iloc[train], y.iloc[train], **weight(train))
-            score = scorer(est, X.iloc[test], y.iloc[test], **weight(test))
-            scores.append(score)
+        for step, (i0, i1) in enumerate(cv.split(X)):
+            X0, y0, w0 = X.iloc[i0], y.iloc[i0], None if w is None else w.iloc[i0]
+            X1, y1, w1 = X.iloc[i1], y.iloc[i1], None if w is None else w.iloc[i1]
+            eval_kwargs = {"eval": (X1, y1, w1, scorer)} if early else {}
+            est.fit(X0, y0, sample_weight=w0, **eval_kwargs)
+            scores.append(scorer(est, X1, y1, sample_weight=w1))
+            if train_score:
+                train_scores.append(scorer(est, X0, y0, sample_weight=w0))
             trial.report(np.mean(scores), step)
             if trial.should_prune():
                 raise optuna.TrialPruned()
         trial.set_user_attr("std_score", np.std(scores))
+        if train_score:
+            trial.set_user_attr("train_score", np.mean(train_scores))
+            trial.set_user_attr("train_std_score", np.std(train_scores))
         return np.mean(scores)
-
-    def weight(idx):
-        return {} if w is None else {"sample_weight": w.iloc[idx]}
 
     cv = KFold(cv) if type(cv) is int else cv
     scorer = get_scorer(scoring)
-    optuna.logging.set_verbosity(optuna.logging.getattr(verbosity))
+    optuna.logging.set_verbosity(getattr(optuna.logging, verbosity))
     # https://optuna.readthedocs.io/en/stable/reference/samplers/index.html
     # https://towardsdatascience.com/building-a-tree-structured-parzen-estimator-from-scratch-kind-of-20ed31770478/
     sampler = optuna.samplers.TPESampler(seed=seed, **sampler_kwargs)
