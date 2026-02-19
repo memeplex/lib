@@ -25,9 +25,9 @@ def search(
     cv=5,
     scoring="r2",
     score_penalty=0,
+    score_train=False,
+    early_stop=False,
     n_trials=20,
-    early_stopping=False,
-    train_scoring=False,
     n_jobs=-1,
     verbosity="WARNING",
     sampler_kwargs={},
@@ -53,22 +53,22 @@ def search(
         for step, (i0, i1) in enumerate(cv.split(X)):
             X0, y0, w0 = X.iloc[i0], y.iloc[i0], None if w is None else w.iloc[i0]
             X1, y1, w1 = X.iloc[i1], y.iloc[i1], None if w is None else w.iloc[i1]
-            eval_kwargs = {"eval": (X1, y1, w1, scorer)} if early_stopping else {}
+            eval_kwargs = {"eval": (X1, y1, w1, scorer)} if early_stop else {}
             est.fit(X0, y0, sample_weight=w0, **eval_kwargs)
             scores.append(scorer(est, X1, y1, sample_weight=w1))
-            if train_scoring:
+            if score_train:
                 train_scores.append(scorer(est, X0, y0, sample_weight=w0))
-            if early_stopping:
+            if early_stop:
                 stopped_at.append(est.stopped_at)
             trial.report(np.mean(scores), step)
             if trial.should_prune():
                 raise optuna.TrialPruned()
         trial.set_user_attr("score", np.mean(scores))
         trial.set_user_attr("std_score", np.std(scores))
-        if train_scoring:
+        if score_train:
             trial.set_user_attr("train_score", np.mean(train_scores))
             trial.set_user_attr("train_std_score", np.std(train_scores))
-        if early_stopping:
+        if early_stop:
             trial.set_user_attr("stopped_at", stopped_at)
         return np.mean(scores) - score_penalty * np.std(scores)
 
@@ -84,7 +84,7 @@ def search(
     )
     study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs)
     est = new_est(**study.best_params)
-    if early_stopping:
+    if early_stop:
         est.stop_at(study.best_trial.user_attrs["stopped_at"])
     est.fit(X, y, sample_weight=w)
 
