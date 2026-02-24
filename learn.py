@@ -53,8 +53,11 @@ def search(
         for step, (i0, i1) in enumerate(cv.split(X)):
             X0, y0, w0 = X.iloc[i0], y.iloc[i0], None if w is None else w.iloc[i0]
             X1, y1, w1 = X.iloc[i1], y.iloc[i1], None if w is None else w.iloc[i1]
-            eval_kwargs = {"eval": (X1, y1, w1, scorer)} if early_stop else {}
-            est.fit(X0, y0, sample_weight=w0, **eval_kwargs)
+            kwargs = {} if early_stop in (None, False) else {
+                "eval": (X1, y1, w1, scorer),
+                **({} if early_stop is True else early_stop)
+            }
+            est.fit(X0, y0, sample_weight=w0, **kwargs)
             scores.append(scorer(est, X1, y1, sample_weight=w1))
             if score_train:
                 train_scores.append(scorer(est, X0, y0, sample_weight=w0))
@@ -92,7 +95,7 @@ def search(
 
 
 class LGBMEarlyStoppingMixin:
-    def fit(self, *args, eval=None, **kwargs):
+    def fit(self, *args, eval=None, rounds=20, verbose=False, **kwargs):
         def metric(y_true, y_pred, weight):
             score = scorer._score_func(y_true, y_pred, sample_weight=weight)
             return "score", score, scorer._sign > 0
@@ -103,7 +106,7 @@ class LGBMEarlyStoppingMixin:
                 eval_set=[(X, y)],
                 eval_sample_weight=[w],
                 eval_metric=metric,
-                callbacks=[self._callback],
+                callbacks=[lgb.early_stopping(stopping_rounds=rounds, verbose=verbose)],
             )
         return super().fit(*args, **kwargs)
 
@@ -113,5 +116,3 @@ class LGBMEarlyStoppingMixin:
     @property
     def stopped_at(self):
         return self.best_iteration_
-
-    _callback = lgb.early_stopping(stopping_rounds=20, verbose=False)
