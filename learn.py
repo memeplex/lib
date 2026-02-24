@@ -78,7 +78,6 @@ def search(
         return np.mean(scores) - score_penalty * np.std(scores)
 
     def worker(n_trials):
-        study = optuna.load_study(study_name=name, storage=storage)
         study.optimize(objective, n_trials=n_trials)
 
     cv = KFold(cv) if type(cv) is int else cv
