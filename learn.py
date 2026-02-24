@@ -77,7 +77,8 @@ def search(
             trial.set_user_attr("stopped_at", stopped_at)
         return np.mean(scores) - score_penalty * np.std(scores)
 
-    def worker():
+    def worker(n_trials):
+        print(n_trials)
         study = optuna.load_study(study_name=name, storage=storage)
         study.optimize(objective, n_trials=n_trials)
 
@@ -99,7 +100,8 @@ def search(
         study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs)
     else:
         n_jobs = cpu_count() if n_jobs == -1 else n_jobs
-        Parallel(n_jobs=n_jobs)(delayed(worker)() for _ in range(n_jobs))
+        n_trials = [n_trials // n_jobs + (i < n_trials % n_jobs) for i in range(n_jobs)]
+        Parallel(n_jobs=n_jobs)(delayed(worker)(n) for n in n_trials)
     est = new_est(**study.best_params)
     if early_stop:
         est.stop_at(study.best_trial.user_attrs["stopped_at"])
