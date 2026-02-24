@@ -1,4 +1,5 @@
 import numpy as np
+from joblib import Parallel, cpu_count, delayed
 from sklearn import set_config
 from sklearn.metrics import get_scorer
 from sklearn.model_selection import KFold
@@ -6,7 +7,7 @@ from sklearn.model_selection import KFold
 from .base import try_import
 
 lgb = try_import("lightgbm")
-optuna = try_import("optuna")
+optuna, ostore = try_import("optuna"), try_import("optuna.storages")
 
 
 def config_sklearn(pandas_output=True):
@@ -29,11 +30,12 @@ def search(
     early_stop=False,
     n_trials=20,
     n_jobs=-1,
-    verbosity="WARNING",
+    name=None,
+    storage=None,
     sampler_kwargs={},
     pruner_kwargs={},
+    verbosity="WARNING",
     seed=0,
-    storage=None,
 ):
     def suggest(trial):
         params = {}
@@ -75,17 +77,29 @@ def search(
             trial.set_user_attr("stopped_at", stopped_at)
         return np.mean(scores) - score_penalty * np.std(scores)
 
+    def worker():
+        study = optuna.load_study(study_name=name, storage=storage)
+        study.optimize(objective, n_trials=n_trials)
+
     cv = KFold(cv) if type(cv) is int else cv
     scorer = get_scorer(scoring)
     optuna.logging.set_verbosity(getattr(optuna.logging, verbosity))
+    if type(storage) is str and storage[0] in (".", "/"):
+        storage = ostore.JournalStorage(ostore.journal.JournalFileBackend(storage))
     # https://optuna.readthedocs.io/en/stable/reference/samplers/index.html
     # https://towardsdatascience.com/building-a-tree-structured-parzen-estimator-from-scratch-kind-of-20ed31770478/
-    sampler = optuna.samplers.TPESampler(seed=seed, **sampler_kwargs)
-    pruner = optuna.pruners.MedianPruner(**pruner_kwargs)
     study = optuna.create_study(
-        sampler=sampler, pruner=pruner, storage=storage, direction="maximize"
+        study_name=name,
+        storage=storage,
+        sampler=optuna.samplers.TPESampler(seed=seed, **sampler_kwargs),
+        pruner=optuna.pruners.MedianPruner(**pruner_kwargs),
+        direction="maximize",
     )
-    study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs)
+    if storage is None:
+        study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs)
+    else:
+        n_jobs = cpu_count() if n_jobs == -1 else n_jobs
+        Parallel(n_jobs=n_jobs)(delayed(worker)() for _ in range(n_jobs))
     est = new_est(**study.best_params)
     if early_stop:
         est.stop_at(study.best_trial.user_attrs["stopped_at"])
