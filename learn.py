@@ -53,10 +53,10 @@ def search(
         for step, (i0, i1) in enumerate(cv.split(X)):
             X0, y0, w0 = X.iloc[i0], y.iloc[i0], None if w is None else w.iloc[i0]
             X1, y1, w1 = X.iloc[i1], y.iloc[i1], None if w is None else w.iloc[i1]
-            kwargs = {} if early_stop in (None, False) else {
-                "eval": (X1, y1, w1, scorer),
-                **({} if early_stop is True else early_stop)
-            }
+            kwargs = {}
+            if early_stop not in (None, False):
+                kwargs["eval"] = X1, y1, w1, scorer
+                kwargs.update({} if early_stop is True else early_stop)
             est.fit(X0, y0, sample_weight=w0, **kwargs)
             scores.append(scorer(est, X1, y1, sample_weight=w1))
             if score_train:
