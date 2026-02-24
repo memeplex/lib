@@ -100,7 +100,7 @@ def search(
     else:
         n_jobs = cpu_count() if n_jobs == -1 else n_jobs
         n_trials = [n_trials // n_jobs + (i < n_trials % n_jobs) for i in range(n_jobs)]
-        Parallel(n_jobs=n_jobs)(delayed(worker)(n) for n in n_trials)
+        Parallel(n_jobs=n_jobs)(delayed(worker)(n) for n in n_trials if n > 0)
     est = new_est(**study.best_params)
     if early_stop:
         est.stop_at(study.best_trial.user_attrs["stopped_at"])
