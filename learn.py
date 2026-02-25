@@ -1,5 +1,5 @@
+import re
 import tempfile
-from pathlib import Path
 
 import numpy as np
 from joblib import Parallel, cpu_count, delayed
@@ -112,10 +112,10 @@ def search(
 
 
 def get_study(name, storage, load=True, **kwargs):
-    if Path(storage).exists():
+    if not re.match(r"^[a-zA-Z]+://", storage):
         storage = ostore.JournalStorage(ostore.journal.JournalFileBackend(storage))
-    return (optuna.load_study if load else optuna.create_study)(
-        study_name=name, storage=storage, **kwargs
+    return optuna.create_study(
+        study_name=name, storage=storage, load_if_exists=load, **kwargs
     )
 
 
