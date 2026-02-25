@@ -51,7 +51,7 @@ def search(
 
     def objective(trial):
         scores, train_scores, stopped_at = [], [], []
-        est = new_est(**suggest(trial))
+        est = new_est(**suggest(trial), refit=False)
         for step, (i0, i1) in enumerate(cv.split(X)):
             X0, y0, w0 = X.iloc[i0], y.iloc[i0], None if w is None else w.iloc[i0]
             X1, y1, w1 = X.iloc[i1], y.iloc[i1], None if w is None else w.iloc[i1]
@@ -101,7 +101,7 @@ def search(
         n_jobs = cpu_count() if n_jobs == -1 else n_jobs
         n_trials = [n_trials // n_jobs + (i < n_trials % n_jobs) for i in range(n_jobs)]
         Parallel(n_jobs=n_jobs)(delayed(worker)(n) for n in n_trials if n > 0)
-    est = new_est(**study.best_params)
+    est = new_est(**study.best_params, refit=True)
     if early_stop:
         est.stop_at(study.best_trial.user_attrs["stopped_at"])
     est.fit(X, y, sample_weight=w)
