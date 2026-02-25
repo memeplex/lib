@@ -1,3 +1,6 @@
+import tempfile
+from pathlib import Path
+
 import numpy as np
 from joblib import Parallel, cpu_count, delayed
 from sklearn import set_config
@@ -32,6 +35,7 @@ def search(
     n_jobs=-1,
     name=None,
     storage=None,
+    resume=False,
     sampler_kwargs={},
     pruner_kwargs={},
     verbosity="WARNING",
@@ -55,11 +59,11 @@ def search(
         for step, (i0, i1) in enumerate(cv.split(X)):
             X0, y0, w0 = X.iloc[i0], y.iloc[i0], None if w is None else w.iloc[i0]
             X1, y1, w1 = X.iloc[i1], y.iloc[i1], None if w is None else w.iloc[i1]
-            kwargs = {}
+            fit_kwargs = {}
             if early_stop not in (None, False):
-                kwargs["eval"] = X1, y1, w1, scorer
-                kwargs.update({} if early_stop is True else early_stop)
-            est.fit(X0, y0, sample_weight=w0, **kwargs)
+                fit_kwargs["eval"] = X1, y1, w1, scorer
+                fit_kwargs.update({} if early_stop is True else early_stop)
+            est.fit(X0, y0, sample_weight=w0, **fit_kwargs)
             scores.append(scorer(est, X1, y1, sample_weight=w1))
             if score_train:
                 train_scores.append(scorer(est, X0, y0, sample_weight=w0))
@@ -77,36 +81,42 @@ def search(
             trial.set_user_attr("stopped_at", stopped_at)
         return np.mean(scores) - score_penalty * np.std(scores)
 
-    def worker(n_trials):
-        study = optuna.load_study(study_name=name, storage=storage)
-        study.optimize(objective, n_trials=n_trials)
+    def worker(id, n_trials):
+        # https://optuna.readthedocs.io/en/stable/reference/samplers/index.html
+        # https://towardsdatascience.com/building-a-tree-structured-parzen-estimator-from-scratch-kind-of-20ed31770478/
+        get_study(
+            name,
+            storage,
+            sampler=optuna.samplers.TPESampler(seed=seed + id, **sampler_kwargs),
+            pruner=optuna.pruners.MedianPruner(**pruner_kwargs),
+            load=True,
+        ).optimize(objective, n_trials=n_trials)
 
     cv = KFold(cv) if type(cv) is int else cv
     scorer = get_scorer(scoring)
     optuna.logging.set_verbosity(getattr(optuna.logging, verbosity))
-    if type(storage) is str and storage[0] in (".", "/"):
-        storage = ostore.JournalStorage(ostore.journal.JournalFileBackend(storage))
-    # https://optuna.readthedocs.io/en/stable/reference/samplers/index.html
-    # https://towardsdatascience.com/building-a-tree-structured-parzen-estimator-from-scratch-kind-of-20ed31770478/
-    study = optuna.create_study(
-        study_name=name,
-        storage=storage,
-        sampler=optuna.samplers.TPESampler(seed=seed, **sampler_kwargs),
-        pruner=optuna.pruners.MedianPruner(**pruner_kwargs),
-        direction="maximize",
-    )
-    if storage is None:
-        study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs)
-    else:
+    with tempfile.NamedTemporaryFile() as f:  # Ignored if storage is passed
+        storage = storage or f.name
+        study = get_study(name, storage, direction="maximize", load=resume)
         n_jobs = cpu_count() if n_jobs == -1 else n_jobs
         n_trials = [n_trials // n_jobs + (i < n_trials % n_jobs) for i in range(n_jobs)]
-        Parallel(n_jobs=n_jobs)(delayed(worker)(n) for n in n_trials if n > 0)
+        Parallel(n_jobs=n_jobs)(
+            delayed(worker)(i, n) for i, n in enumerate(n_trials) if n > 0
+        )
     est = new_est(**study.best_params, refit=True)
     if early_stop:
         est.stop_at(study.best_trial.user_attrs["stopped_at"])
     est.fit(X, y, sample_weight=w)
 
     return study, est
+
+
+def get_study(name, storage, load=True, **kwargs):
+    if Path(storage).exists():
+        storage = ostore.JournalStorage(ostore.journal.JournalFileBackend(storage))
+    return (optuna.load_study if load else optuna.create_study)(
+        study_name=name, storage=storage, **kwargs
+    )
 
 
 class LGBMEarlyStoppingMixin:
