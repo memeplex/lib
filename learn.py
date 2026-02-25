@@ -10,7 +10,7 @@ from sklearn.model_selection import KFold
 from .base import try_import
 
 lgb = try_import("lightgbm")
-optuna, ostore = try_import("optuna"), try_import("optuna.storages")
+optuna = try_import("optuna")
 
 
 def config_sklearn(pandas_output=True):
@@ -113,7 +113,8 @@ def search(
 
 def get_study(name, storage, load=True, **kwargs):
     if not re.match(r"^[a-zA-Z]+://", storage):
-        storage = ostore.JournalStorage(ostore.journal.JournalFileBackend(storage))
+        backend = optuna.storages.journal.JournalFileBackend(storage)
+        storage = optuna.storages.JournalStorage(backend)
     return optuna.create_study(
         study_name=name, storage=storage, load_if_exists=load, **kwargs
     )
