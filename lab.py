@@ -83,9 +83,9 @@ def nice_style(md_width="80ch", figsize=(6, 4)):
 
 
 @contextlib.contextmanager
-def ignore_warnings(category):
+def ignore_warnings(**kwargs):
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=category)
+        warnings.filterwarnings("ignore", **kwargs)
         yield
 
 
