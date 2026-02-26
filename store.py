@@ -4,6 +4,7 @@ import pickle
 import re
 import textwrap
 from functools import partial
+from pathlib import Path
 
 import pandas as pd
 
@@ -20,7 +21,7 @@ class Database:
         assert type(sql_path) is not str or sql_path[0] in [".", "/"]
         self.conn = conn
         self.use_cx = type(conn) is str
-        self.sql_path = sql_path
+        self.sql_path = Path(sql_path)
         self.render_kwargs = kwargs
 
     def query(self, sql=None, macro=None, *, debug=None, as_type=None, **kwargs):

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import time
+from pathlib import Path
 
 minute, hour, day, week = 60, 3600, 24 * 3600, 7 * 24 * 3600
 
@@ -66,7 +67,7 @@ def render(
     )
     env.filters.update(filters)
     env.globals.update(globals)
-    if text[0] in [".", "/"]:
+    if isinstance(text, Path) or text[0] in "./":
         with open(text) as file:
             text = file.read()
     template = env.from_string(text)
