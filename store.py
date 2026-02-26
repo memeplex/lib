@@ -4,6 +4,7 @@ import pickle
 import re
 import textwrap
 from functools import partial
+from gzip import GzipFile
 from pathlib import Path
 
 import pandas as pd
@@ -130,9 +131,12 @@ class Storage:
         return open(f"{self.path}/{name}", mode)
 
     def _io(self, name, value, as_type, kwargs):
-        ext = os.path.splitext(name)[1]
+        root, ext = os.path.splitext(name)
+        compress = ext in (".gz", ".gzip")
+        if compress:
+            root, ext = os.path.splitext(root)
         get = value is None
-        if ext in [".pickle", ".pkl", ""]:
+        if ext in (".pickle", ".pkl", ""):
             load, dump = pickle.load, pickle.dump
         elif ext == ".json":
             load, dump = partial(json.load, object_hook=Bundle), json.dump
@@ -151,6 +155,9 @@ class Storage:
         mode = ("r" if get else "w") + ("t" if ext == ".json" else "b")
         fun = load if get else partial(dump, value)
         with self._open(name, mode) as file:
+            if compress:
+                with GzipFile(fileobj=file, mode=mode) as gzip_file:
+                    return fun(gzip_file, **kwargs)
             return fun(file, **kwargs)
 
     def _type(self, value):
