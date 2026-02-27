@@ -105,7 +105,7 @@ def search(
         Parallel(n_jobs=n_jobs)(
             delayed(worker)(i, n) for i, n in enumerate(n_trials) if n > 0
         )
-        est = new_est(**study.best_params, refit=True)
+        est = new_est(**study.best_params, **kwargs, refit=True)
         if early_stop:
             est.set_best_iteration(study.best_trial.user_attrs["best_iterations"])
         est.fit(X, y, sample_weight=w)
