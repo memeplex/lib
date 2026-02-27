@@ -10,6 +10,7 @@ from sklearn.model_selection import KFold
 from .base import try_import
 
 lgb = try_import("lightgbm")
+xgb = try_import("xgboost")
 optuna = try_import("optuna")
 
 
@@ -40,6 +41,7 @@ def search(
     pruner_kwargs={},
     verbosity="WARNING",
     seed=0,
+    **kwargs
 ):
     def suggest(trial):
         params = {}
@@ -54,8 +56,8 @@ def search(
         return params
 
     def objective(trial):
-        scores, train_scores, stopped_at = [], [], []
-        est = new_est(**suggest(trial), refit=False)
+        scores, train_scores, best_iterations = [], [], []
+        est = new_est(**suggest(trial), refit=False, **kwargs)
         for step, (i0, i1) in enumerate(cv.split(X)):
             X0, y0, w0 = X.iloc[i0], y.iloc[i0], None if w is None else w.iloc[i0]
             X1, y1, w1 = X.iloc[i1], y.iloc[i1], None if w is None else w.iloc[i1]
@@ -68,7 +70,7 @@ def search(
             if score_train:
                 train_scores.append(scorer(est, X0, y0, sample_weight=w0))
             if early_stop:
-                stopped_at.append(est.stopped_at)
+                best_iterations.append(est.best_iteration_)
             trial.report(np.mean(scores), step)
             if trial.should_prune():
                 raise optuna.TrialPruned()
@@ -78,7 +80,7 @@ def search(
             trial.set_user_attr("train_score", np.mean(train_scores))
             trial.set_user_attr("train_std_score", np.std(train_scores))
         if early_stop:
-            trial.set_user_attr("stopped_at", stopped_at)
+            trial.set_user_attr("best_iterations", best_iterations)
         return np.mean(scores) - score_penalty * np.std(scores)
 
     def worker(id, n_trials):
@@ -103,12 +105,12 @@ def search(
         Parallel(n_jobs=n_jobs)(
             delayed(worker)(i, n) for i, n in enumerate(n_trials) if n > 0
         )
-    est = new_est(**study.best_params, refit=True)
-    if early_stop:
-        est.stop_at(study.best_trial.user_attrs["stopped_at"])
-    est.fit(X, y, sample_weight=w)
-
-    return study, est
+        est = new_est(**study.best_params, refit=True)
+        if early_stop:
+            est.set_best_iteration(study.best_trial.user_attrs["best_iterations"])
+        est.fit(X, y, sample_weight=w)
+    
+        return study, est
 
 
 def get_study(name, storage, load=True, **kwargs):
@@ -120,25 +122,52 @@ def get_study(name, storage, load=True, **kwargs):
     )
 
 
-class LGBMEarlyStoppingMixin:
-    def fit(self, *args, eval=None, rounds=20, verbose=False, **kwargs):
+class BaseEarlyStoppingMixin:
+    def set_best_iteration(self, best_iterations):
+        self.set_params(n_estimators=round(np.mean(best_iterations)))
+
+
+class LGBMEarlyStoppingMixin(BaseEarlyStoppingMixin):
+    def fit(self, *args, eval=None, rounds=20, tol=0, verbose=False, **kwargs):
+        if not eval:
+            return super().fit(*args, **kwargs)
+
         def metric(y_true, y_pred, weight):
             score = scorer._score_func(y_true, y_pred, sample_weight=weight)
             return "score", score, scorer._sign > 0
 
-        if eval:
-            X, y, w, scorer = eval
-            kwargs.update(
-                eval_set=[(X, y)],
-                eval_sample_weight=[w],
-                eval_metric=metric,
-                callbacks=[lgb.early_stopping(stopping_rounds=rounds, verbose=verbose)],
-            )
-        return super().fit(*args, **kwargs)
+        X, y, w, scorer = eval
+        cb = lgb.early_stopping(stopping_rounds=rounds, min_delta=tol, verbose=verbose)
+        return super().fit(
+            *args,
+            eval_set=[(X, y)],
+            eval_sample_weight=[w],
+            eval_metric=metric,
+            callbacks=[cb],
+            **kwargs
+        )
 
-    def stop_at(self, stopped_at):
-        self.set_params(n_estimators=round(np.mean(stopped_at)))
+
+class XGBEarlyStoppingMixin(BaseEarlyStoppingMixin):
+
+    def fit(self, *args, eval=None, rounds=20, tol=0, verbose=False, **kwargs):
+        if not eval:
+            return super().fit(*args, **kwargs)
+
+        # https://github.com/dmlc/xgboost/discussions/12040#discussioncomment-15949111
+        X, y, w, scorer = eval
+        cb = xgb.callback.EarlyStopping(
+            rounds=rounds, min_delta=tol, maximize=scorer._sign > 0, save_best=True
+        )
+        self.set_params(eval_metric=scorer._score_func, callbacks=[cb])
+        return super().fit(
+            *args,
+            eval_set=[(X, y)],
+            sample_weight_eval_set=[w],
+            verbose=verbose,
+            **kwargs
+        )
 
     @property
-    def stopped_at(self):
-        return self.best_iteration_
+    def best_iteration_(self):
+        return self.best_iteration
