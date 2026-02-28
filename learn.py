@@ -1,3 +1,4 @@
+import logging
 import re
 import tempfile
 
@@ -12,6 +13,8 @@ from .base import try_import
 lgb = try_import("lightgbm")
 xgb = try_import("xgboost")
 optuna = try_import("optuna")
+
+logger = logging.getLogger(__name__)
 
 
 def config_sklearn(pandas_output=True):
@@ -56,6 +59,7 @@ def search(
         return params
 
     def objective(trial):
+        logger.info("Running trial %s", trial.number)
         scores, train_scores, best_iterations = [], [], []
         est = new_est(**suggest(trial), refit=False, **kwargs)
         for step, (i0, i1) in enumerate(cv.split(X)):
@@ -73,6 +77,7 @@ def search(
                 best_iterations.append(est.best_iteration_)
             trial.report(np.mean(scores), step)
             if trial.should_prune():
+                logger.info("Trial %s prunned", trial.number)
                 raise optuna.TrialPruned()
         trial.set_user_attr("score", np.mean(scores))
         trial.set_user_attr("std_score", np.std(scores))
@@ -81,7 +86,9 @@ def search(
             trial.set_user_attr("train_std_score", np.std(train_scores))
         if early_stop:
             trial.set_user_attr("best_iterations", best_iterations)
-        return np.mean(scores) - score_penalty * np.std(scores)
+        score = np.mean(scores) - score_penalty * np.std(scores)
+        logger.info("Trial %s ended with score %s", trial.number, score)
+        return score
 
     def worker(id, n_trials):
         # https://optuna.readthedocs.io/en/stable/reference/samplers/index.html
@@ -94,6 +101,7 @@ def search(
             load=True,
         ).optimize(objective, n_trials=n_trials)
 
+    logger.info("Running study '%s'", name)
     cv = KFold(cv) if type(cv) is int else cv
     scorer = get_scorer(scoring)
     optuna.logging.set_verbosity(getattr(optuna.logging, verbosity))
@@ -105,11 +113,12 @@ def search(
         Parallel(n_jobs=n_jobs)(
             delayed(worker)(i, n) for i, n in enumerate(n_trials) if n > 0
         )
+        logger.info("Refitting estimator for study '%s'", name)
         est = new_est(**study.best_params, **kwargs, refit=True)
         if early_stop:
             est.set_best_iteration(study.best_trial.user_attrs["best_iterations"])
         est.fit(X, y, sample_weight=w)
-    
+
         return study, est
 
 

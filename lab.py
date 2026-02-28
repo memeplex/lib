@@ -1,4 +1,5 @@
 import contextlib
+import logging
 import os
 import sys
 import warnings
@@ -91,3 +92,9 @@ def ignore_warnings(**kwargs):
 
 def plot_diagonal(ax=None):
     (ax or plt).axline((0, 0), slope=1, color="k", linestyle=":", alpha=0.3)
+
+
+def log(**kwargs):
+    for level, names in kwargs.items():
+        for name in (names if type(names) in (tuple, list) else [names]):
+            logging.getLogger(name).setLevel(level.upper())
