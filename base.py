@@ -32,8 +32,16 @@ class Bundle(dict):
 
 class Config(Bundle):
     def uid(self):
-        text = json.dumps(self, sort_keys=True)
-        return hashlib.blake2b(text.encode("utf-8"), digest_size=16).hexdigest()
+        return hash(json.dumps(self, sort_keys=True))
+
+
+def hash(text, size=16, as_int=False):
+    h = hashlib.blake2b(text.encode("utf-8"), digest_size=size)
+    return int.from_bytes(h.digest()) if as_int else h.hexdigest()
+
+
+def rand(text, seed, size=4):
+    return hash(f"{text}@#${seed}", size, as_int=True)
 
 
 def sh(cmd, input=None, capture=True, text=True, check=True):
@@ -115,3 +123,9 @@ def try_import(name):
         return importlib.import_module(name)
     except ImportError:
         return None
+
+
+def replace(text, replacements={}, **kwargs):
+    for orig, repl in (replacements | kwargs).items():
+        text = text.replace(orig, repl)
+    return text
