@@ -129,3 +129,7 @@ def replace(text, replacements={}, **kwargs):
     for orig, repl in (replacements | kwargs).items():
         text = text.replace(orig, repl)
     return text
+
+
+def as_many(val):
+    return val if type(val) in (tuple, list) else [val]
