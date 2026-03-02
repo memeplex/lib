@@ -5,12 +5,14 @@ import tempfile
 import numpy as np
 import pandas as pd
 from joblib import Parallel, cpu_count, delayed
+from matplotlib import pyplot as plt
 from sklearn import set_config
+from sklearn.base import clone
 from sklearn.metrics import get_scorer
 from sklearn.model_selection import KFold
 from sklearn.utils import _safe_indexing as idx
 
-from .base import Bundle, rand, replace, try_import
+from .base import Bundle, as_many, rand, replace, try_import
 
 lgb = try_import("lightgbm")
 xgb = try_import("xgboost")
@@ -41,7 +43,7 @@ def cv(
 ):
     test_scores, train_scores = [], []
     scorer = get_scorer(scoring)
-    est.set_params(**kwargs)
+    est = clone(est).set_params(**kwargs)
     for step, (i0, i1) in enumerate(cv.split(X)):
         X0, y0, w0 = idx(X, i0), idx(y, i0), None if w is None else idx(w, i0)
         X1, y1, w1 = idx(X, i1), idx(y, i1), None if w is None else idx(w, i1)
@@ -61,10 +63,8 @@ def cv(
         test_score_std=np.std(test_scores),
     )
     if score_train:
-        res.update(
-            train_score_mean=np.mean(train_scores),
-            train_score_std=np.std(train_scores),
-        )
+        res.train_score_mean = np.mean(train_scores)
+        res.train_score_std = (np.std(train_scores),)
     return res
 
 
@@ -98,6 +98,8 @@ def lgbm_cv(
         score = scorer._score_func(y_real, y_pred, sample_weight=weight)
         return "score", score, scorer._sign > 0
 
+    params = params | kwargs
+    n_iters = params.pop("n_estimators", n_iters)
     scorer = get_scorer(scoring)
     callbacks = []
     if trial is not None:
@@ -111,9 +113,9 @@ def lgbm_cv(
         cb_kwargs.update(log if isinstance(log, dict) else {})
         callbacks.append(lgb.log_evaluation(**cb_kwargs))
     info = lgb.cv(
-        params=kwargs | params,
+        params=params,
         train_set=lgb.Dataset(X, label=y, weight=w, categorical_feature="auto"),
-        num_boost_round=params.get("n_estimators", n_iters),
+        num_boost_round=n_iters,
         folds=cv.split(X),
         feval=metric,
         metrics=metrics,
@@ -155,6 +157,8 @@ def xgb_cv(
         score = scorer._score_func(y_real, y_pred, sample_weight=weight)
         return "score", score
 
+    params = params | kwargs
+    n_iters = params.pop("n_estimators", n_iters)
     scorer = get_scorer(scoring)
     callbacks = []
     if trial is not None:
@@ -168,9 +172,9 @@ def xgb_cv(
         cb_kwargs.update(log if isinstance(log, dict) else {})
         callbacks.append(xgb.callback.EvaluationMonitor(**cb_kwargs))
     info = xgb.cv(
-        params=kwargs | params,
+        params=params,
         dtrain=xgb.DMatrix(X, label=y, weight=w, enable_categorical=True),
-        num_boost_round=params.get("n_estimators", n_iters),
+        num_boost_round=n_iters,
         folds=list(cv.split(X)),
         custom_metric=metric,
         metrics=metrics,
@@ -191,17 +195,18 @@ def search(
     resume=False,
     sampler={},
     pruner={},
-    verbosity="WARNING",
+    verbosity="INFO",
+    init_worker=lambda: None,
     seed=0,
     **kwargs,  # Passed to evaluate
 ):
     def suggest(trial):
-        params = {}
+        params = Bundle()
         for name, args in space.items():
             if type(args) is list:
                 params[name] = trial.suggest_categorical(name, args)
             else:
-                name, kind = name.rsplit(":", 1)
+                kind, *args = args
                 suggest = {"f": trial.suggest_float, "i": trial.suggest_int}[kind]
                 args = (args[:-1], args[-1]) if type(args[-1]) is dict else (args, {})
                 params[name] = suggest(name, *args[0], **args[1])
@@ -241,7 +246,7 @@ def search(
     logger.info("Running study '%s'", name)
     n_jobs = cpu_count() if n_jobs == -1 else n_jobs
     n_trials = [n_trials // n_jobs + (i < n_trials % n_jobs) for i in range(n_jobs)]
-    Parallel(n_jobs=n_jobs)(
+    Parallel(n_jobs=n_jobs, initializer=init_worker)(
         delayed(worker)(i, n) for i, n in enumerate(n_trials) if n > 0
     )
     logger.info("Study '%s' finalized with best score %s", name, study.best_value)
@@ -260,3 +265,38 @@ def get_storage(storage=None, **kwargs):
 
 def get_study(name, storage=None, **kwargs):
     return optuna.load_study(study_name=name, storage=get_storage(storage), **kwargs)
+
+
+def get_importance(est, kind="gain"):
+    if hasattr(est, "booster_"):  # LightGBM
+        imp = pd.Series(
+            est.booster_.feature_importance(importance_type=kind),
+            index=est.booster_.feature_name(),
+        )
+    else:  # XGBoost
+        imp = pd.Series(est.get_booster().get_score(importance_type=kind))
+    return imp.sort_values(ascending=False)
+
+
+def plot_importance(
+    est,
+    kind="gain",
+    offset=0,
+    limit=15,
+    title="Feature importances",
+    size=(6, 4),
+    **kwargs,
+):
+    kinds = as_many(kind)
+    n = len(kinds)
+    n_rows = n // 2 + n % 2
+    n_cols = min(n, 2)
+    size = size[0] * n_cols, size[1] * n_rows
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=size)
+    axes = axes.flatten() if n > 1 else [axes]
+    axes[-1].axis("off" if 0 < n % 2 < n_cols else "on")
+    for kind, ax in zip(kinds, axes):
+        imp = get_importance(est, kind).iloc[offset:limit]
+        imp.plot(kind="barh", ax=ax, **kwargs).invert_yaxis()
+    fig.suptitle(title)
+    plt.tight_layout()
